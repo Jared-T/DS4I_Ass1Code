@@ -1,6 +1,7 @@
 ---
 title: "Assignment 1 Full Writeup"
 format: html
+author: Jared Tavares
 ---
 
 # Introduction and Literature Review
