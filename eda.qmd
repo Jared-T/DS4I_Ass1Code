@@ -1,6 +1,8 @@
 ---
 title: "Exploratory Data Analysis"
 format: html
+execute: 
+  freeze: auto
 ---
 
 # Data Preparation
