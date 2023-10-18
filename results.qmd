@@ -38,79 +38,76 @@ from keras.preprocessing.text import Tokenizer
 from keras.preprocessing.sequence import pad_sequences
 from keras.models import load_model
 import json
-# import cuml
+#import cuml
 from IPython.display import Image, display
 
 ```
 
 
 ```{python}
+# Construct and train a neural network using the provided parameters.
+def train_neural_network(layer_neurons, regularization_strength, training_epochs, dropout_probability=0.5):
 
-def neural_net(neurons_per_layer, l2_reg_value, epochs, dropout_rate=0.5):
     model = Sequential()
 
-    # Input layer with He initialization
-    model.add(Dense(neurons_per_layer[0], activation='relu', input_dim=inp_dim, kernel_regularizer=l2(l2_reg_value), kernel_initializer=he_normal()))
+    # Define the input layer with specified initialization and regularization
+    model.add(Dense(layer_neurons[0], activation='relu', input_dim=input_dim, kernel_regularizer=l2(regularization_strength), kernel_initializer=he_normal()))
     model.add(BatchNormalization())
-    model.add(Dropout(dropout_rate))
+    model.add(Dropout(dropout_probability))
 
-    # Hidden layers with He initialization
-    for num_neurons in neurons_per_layer[1:]:
-        model.add(Dense(num_neurons, activation='relu', kernel_regularizer=l2(l2_reg_value), kernel_initializer=he_normal()))
+    # Add hidden layers as specified
+    for neurons in layer_neurons[1:]:
+        model.add(Dense(neurons, activation='relu', kernel_regularizer=l2(regularization_strength), kernel_initializer=he_normal()))
         model.add(BatchNormalization())
-        model.add(Dropout(dropout_rate))
+        model.add(Dropout(dropout_probability))
 
-    # Output layer
-    model.add(Dense(count_classes, activation='softmax'))
+    # Add the output layer
+    model.add(Dense(num_classes, activation='softmax'))
 
-    # Adjusted learning rate for Adam optimizer
-    opt = keras.optimizers.Adam(learning_rate=0.001)
-    model.compile(optimizer=opt, loss='categorical_crossentropy', metrics=['accuracy'])
+    # Define optimizer and compile the model
+    optimizer = optimizers.Adam(learning_rate=0.001)
+    model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
 
-    # Callbacks
-    early_stopping = EarlyStopping(monitor='val_loss', patience=10, verbose=1, restore_best_weights=True)
-    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=5, verbose=1, min_delta=0.0001)
-    model_checkpoint = ModelCheckpoint('best_model.h5', monitor='val_loss', mode='min', save_best_only=True, verbose=1)
+    # Specify callbacks for training
+    callbacks = [
+        EarlyStopping(monitor='val_loss', patience=10, verbose=1, restore_best_weights=True),
+        ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=5, verbose=1, min_delta=0.0001),
+        ModelCheckpoint('best_model.h5', monitor='val_loss', mode='min', save_best_only=True, verbose=1)
+    ]
 
-    history = model.fit(X_train, y_train, epochs=epochs, validation_data=(X_val, y_val), callbacks=[early_stopping, reduce_lr, model_checkpoint])
+    # Train the model
+    training_history = model.fit(X_train, y_train, epochs=training_epochs, validation_data=(X_val, y_val), callbacks=callbacks)
 
-    # Evaluate the model on training and test data
-    scores_train = model.evaluate(X_train, y_train, verbose=1)
-    scores_test = model.evaluate(X_test, y_test, verbose=0)
+    # Evaluate the model's performance on training and testing datasets
+    train_scores = model.evaluate(X_train, y_train, verbose=1)
+    test_scores = model.evaluate(X_test, y_test, verbose=0)
 
+    print(f'Accuracy on training data: {train_scores[1] * 100:.2f}%\nError on training data: {(1 - train_scores[1]) * 100:.2f}')
+    print(f'Accuracy on test data: {test_scores[1] * 100:.2f}%\nError on test data: {(1 - test_scores[1]) * 100:.2f}')
 
-    print('Accuracy on training data: {:.2f}%\nError on training data: {:.2f}'.format(scores_train[1] * 100, (1 - scores_train[1]) * 100))
-    print('Accuracy on test data: {:.2f}%\nError on test data: {:.2f}'.format(scores_test[1] * 100, (1 - scores_test[1]) * 100))
+    # Process model predictions for metric calculations
+    predictions = model.predict(X_test)
+    predicted_labels = np.argmax(predictions, axis=1)  
+    true_labels = np.argmax(y_test, axis=1)
 
-    # Access validation scores from the history object
-    val_loss = history.history['val_loss']
-    val_accuracy = history.history['val_accuracy']
-
-    y_pred = model.predict(X_test)
-    y_pred_classes = np.argmax(y_pred, axis=1)  # Convert one-hot encoded predictions to class labels
-
-    # Convert one-hot encoded ground truth labels to class labels
-    y_true_classes = np.argmax(y_test, axis=1)
-
-    # Calculate accuracy, precision, recall, and F1 score
-    accuracy = accuracy_score(y_true_classes, y_pred_classes)
-    precision = precision_score(y_true_classes, y_pred_classes, average='weighted')
-    recall = recall_score(y_true_classes, y_pred_classes, average='weighted')
-    f1 = f1_score(y_true_classes, y_pred_classes, average='weighted')
+    # Calculate various metrics for model evaluation
+    metrics = {
+        'precision': precision_score(true_labels, predicted_labels, average='weighted'),
+        'recall': recall_score(true_labels, predicted_labels, average='weighted'),
+        'f1_score': f1_score(true_labels, predicted_labels, average='weighted')
+    }
 
     return {
-        'val_loss': val_loss,
-        'val_accuracy': val_accuracy,
-        'train_loss': history.history['loss'],
-        'train_accuracy': history.history['accuracy'],
-        'test_loss': scores_test[0],
-        'test_accuracy': scores_test[1],
-        'precision': precision,
-        'recall': recall,
-        'f1_score': f1,
+        'val_loss': training_history.history['val_loss'],
+        'val_accuracy': training_history.history['val_accuracy'],
+        'train_loss': training_history.history['loss'],
+        'train_accuracy': training_history.history['accuracy'],
+        'test_loss': test_scores[0],
+        'test_accuracy': test_scores[1],
+        **metrics,
         'model': model,
-        'history': history
-        }
+        'history': training_history
+    }
 
 ```
 
@@ -266,50 +263,49 @@ def display_test_classification_report(loaded_results):
 
 ```{python}
 
-# The data prep function is called after preparing the data according to BoW, TF-IDF and token embeddings.
-def data_prep(x,y):
-    # First, split into train and a temporary set (test + validation) using stratification
-    X_train, X_temp, y_train, y_temp = train_test_split(x, y, test_size=0.3, stratify=y, random_state=seed)
+# Prepare dataset by splitting into training, validation, and test sets. Additionally, encode and transform labels into one-hot vectors.
+def prepare_dataset(features, labels, split_ratios=(0.3, 0.5), random_seed=1):
 
-    # Split the temporary set into test and validation sets, again using stratification
-    X_test, X_val, y_test, y_val = train_test_split(X_temp, y_temp, test_size=0.5, stratify=y_temp, random_state=seed)
+    # Split data into training and a combined test+validation set with stratification
+    X_train, X_combined, y_train, y_combined = train_test_split(features, labels, test_size=split_ratios[0], stratify=labels, random_state=random_seed)
 
-    X_train = X_train.values
-    X_val = X_val.values
-    X_test = X_test.values
+    # Further split the combined set into separate test and validation sets
+    X_test, X_val, y_test, y_val = train_test_split(X_combined, y_combined, test_size=split_ratios[1], stratify=y_combined, random_state=random_seed)
 
-    label_encoder = LabelEncoder()
+    # Convert dataframes to arrays (if they aren't already)
+    X_train, X_val, X_test = X_train.values, X_val.values, X_test.values
 
-    # Fit and transform the labels to integer labels
-    y_train_encoded = label_encoder.fit_transform(y_train)
-    y_val_encoded = label_encoder.transform(y_val)  # Use transform, not fit_transform
-    y_test_encoded = label_encoder.transform(y_test)  # Use transform, not fit_transform
+    # Initialize label encoder and encode the labels to integers
+    encoder = LabelEncoder()
+    y_train_encoded = encoder.fit_transform(y_train)
+    y_val_encoded = encoder.transform(y_val)
+    y_test_encoded = encoder.transform(y_test)
 
-    # Convert to one-hot encoded vector
-    y_train = to_categorical(y_train_encoded)
-    y_val = to_categorical(y_val_encoded)
-    y_test = to_categorical(y_test_encoded)
+    # Convert integer labels to one-hot vectors
+    y_train_onehot = to_categorical(y_train_encoded)
+    y_val_onehot = to_categorical(y_val_encoded)
+    y_test_onehot = to_categorical(y_test_encoded)
 
-    # dimensions
-    inp_dim = X_test.shape[1]
-    count_classes = y_test.shape[1]
+    # Extract dimensions for input features and number of classes
+    input_dim = X_test.shape[1]
+    num_classes = y_test_onehot.shape[1]
 
     return {
         'X_train': X_train,
         'X_val': X_val,
         'X_test': X_test,
-        'y_train': y_train,
-        'y_val': y_val,
-        'y_test': y_test,
-        'inp_dim': inp_dim,
-        'count_classes': count_classes
+        'y_train': y_train_onehot,
+        'y_val': y_val_onehot,
+        'y_test': y_test_onehot,
+        'input_dim': input_dim,
+        'num_classes': num_classes
     }
 
 ```
 
-
 ```{python}
 
+# An older function from when I had many separate data preparation methods
 def prepare_data(data_preparation_func, x, y):
     data = data_preparation_func(x, y)
     return data
@@ -337,10 +333,10 @@ def hyperparameter_search_nn(seed, neural_net_func, X_train, y_train, X_val, y_v
                 for epochs in num_epochs_space:
                     print(f"Training with: neurons={neurons}, l2_reg={l2_reg}, dropout={dropout_rate}, epochs={epochs}")
 
-                    results = neural_net_func(neurons_per_layer=neurons,
-                                              l2_reg_value=l2_reg,
-                                              epochs=epochs,
-                                              dropout_rate=dropout_rate)
+                    results = neural_net_func(layer_neurons=neurons,
+                                              regularization_strength=l2_reg,
+                                              training_epochs=epochs,
+                                              dropout_probability=dropout_rate)
 
                     results_list.append({
                         'neurons': str(neurons),
@@ -456,16 +452,6 @@ def train_evaluate_nb(X_train, y_train, X_val, y_val, X_test, y_test):
 ```{python}
 
 def plot_accuracies(title, x_label, x_data, train_accuracies, val_accuracies):
-    """
-    Plots training and validation accuracies.
-
-    Parameters:
-        - title (str): Title for the plot.
-        - x_label (str): X-axis label.
-        - x_data (list): X-axis data.
-        - train_accuracies (list): Training accuracies.
-        - val_accuracies (list): Validation accuracies.
-    """
     plt.figure(figsize=(10, 6))
     plt.plot(x_data, train_accuracies, '-o', label='Training Accuracy', color='blue')
     plt.plot(x_data, val_accuracies, '-o', label='Validation Accuracy', color='red')
@@ -476,26 +462,12 @@ def plot_accuracies(title, x_label, x_data, train_accuracies, val_accuracies):
     plt.grid(True)
     return plt.gcf()
 
+# A helper function I defined earlier as a relic to make other parts work
 def display_results_table(df):
-    """
-    Displays the results DataFrame as a table.
-
-    Parameters:
-        - df (DataFrame): Results DataFrame.
-    """
     display(df)
 
 
 def plot_confusion_matrix(y_true, y_pred, title, class_labels=None):
-    """
-    Plots a confusion matrix using seaborn's heatmap() with adjustments for label formats.
-
-    Parameters:
-        - y_true (array-like): True labels.
-        - y_pred (array-like): Predicted labels.
-        - title (str): Title for the heatmap.
-        - class_labels (list, optional): List of class labels.
-    """
     # Convert one-hot encoded labels to label encoded format if necessary
     if len(y_true.shape) > 1 and y_true.shape[1] > 1:
         y_true = np.argmax(y_true, axis=1)
@@ -512,24 +484,10 @@ def plot_confusion_matrix(y_true, y_pred, title, class_labels=None):
 
 
 def visualize_and_verify_results(output, X_val, y_val, X_test, y_test, classifier_type, class_labels=None):
-    """
-    Extended visualization and verification function to handle SVM and NB predictions.
 
-    Parameters:
-        - output (dict): Output from the tuning methods.
-        - X_val (array-like): Validation features.
-        - y_val (array-like): Validation targets.
-        - X_test (array-like): Test features.
-        - y_test (array-like): Test targets.
-        - classifier_type (str): One of 'nn', 'svm', or 'nb'.
-        - class_labels (list, optional): List of class labels.
-
-    Returns:
-        results (dict): Dictionary containing plots, tables, and reports.
-    """
     results = {}
 
-    # 1. Plot accuracies
+    # Plot accuracies
     if classifier_type == 'nn':
         fig_acc = plot_accuracies("Neural Network Accuracies",
                                   "Epochs",
@@ -546,7 +504,7 @@ def visualize_and_verify_results(output, X_val, y_val, X_test, y_test, classifie
                                   output['results_df']['val_accuracy'])
         results['fig_acc'] = fig_acc
 
-    # 2. Display results table
+    # Display results table
     if classifier_type == 'nn':
         metrics = {
             'train_accuracy': output['best_train_accuracies'][-1],
@@ -556,7 +514,7 @@ def visualize_and_verify_results(output, X_val, y_val, X_test, y_test, classifie
     else:
         results['table_others'] = output['results_df']
 
-    # 3. Plot confusion matrices and generate reports
+    # Plot confusion matrices and generate reports
     if 'best_model' in output:
         if classifier_type == 'nn':
             y_pred = output['best_model'].predict(X_test)
@@ -571,7 +529,7 @@ def visualize_and_verify_results(output, X_val, y_val, X_test, y_test, classifie
                                        class_labels)
         results['fig_cm'] = fig_cm
 
-        # 4. Classification reports
+        # Classification reports
         precision = precision_score(y_true_classes, y_pred_classes, average='weighted')
         recall = recall_score(y_true_classes, y_pred_classes, average='weighted')
         f1 = f1_score(y_true_classes, y_pred_classes, average='weighted')
@@ -589,53 +547,54 @@ def visualize_and_verify_results(output, X_val, y_val, X_test, y_test, classifie
 
 ```{python}
 
-def bow_x(data):
-    # Extract relevant columns
+# Convert the sentences to BoW representation
+def bow(data):
+    # Extract the text column from the input data
     text_data = data['sentence']
-    y = data['president']
 
-    # Initialize a CountVectorizer for BOW representation
+    # Initialize a CountVectorizer for BOW representation with specified preprocessing steps
     vectorizer = CountVectorizer(lowercase=True, token_pattern=r"(?u)\b\w+\b", stop_words='english')
 
-    # Fit and transform the text data
-    X = vectorizer.fit_transform(text_data)
+    # Convert text data to BOW representation
+    bow_matrix = vectorizer.fit_transform(text_data)
 
-    # Create a DataFrame from the BOW representation
-    bow_df = pd.DataFrame(X.toarray(), columns=vectorizer.get_feature_names_out())
+    # Convert BOW matrix to a DataFrame for better readability
+    bow_df = pd.DataFrame(bow_matrix.toarray(), columns=vectorizer.get_feature_names_out())
 
     return bow_df
 
+# Convert the sentences to TF-IDF representation
+def tf_idf(data):
+    # Extract sentences from the dataframe
+    sentences = data['sentence'].tolist()
 
-def tf_idf(df):
-    sentences = df['sentence'].tolist()
-
-    # Create a TfidfVectorizer with stop words removal
+    # Initialize a TfidfVectorizer with specified preprocessing steps
     tfidf_vectorizer = TfidfVectorizer(stop_words='english')
 
-    # Fit and transform the sentences to compute TF-IDF values
+    # Convert sentences to TF-IDF representation
     tfidf_matrix = tfidf_vectorizer.fit_transform(sentences)
 
-    # Create a new dataframe with TF-IDF values
+    # Convert TF-IDF matrix to a DataFrame for better readability
     tfidf_df = pd.DataFrame(tfidf_matrix.toarray(), columns=tfidf_vectorizer.get_feature_names_out())
 
     return tfidf_df
 
+# Tokenize the input text data and pad the sequences to a fixed length.
 def tokenize_text(text_data, labels, max_features=10000, maxlen=100):
-    # Tokenization
+    # Initialize and fit the tokenizer on the text data
     tokenizer = Tokenizer(num_words=max_features)
     tokenizer.fit_on_texts(text_data)
     sequences = tokenizer.texts_to_sequences(text_data)
 
-    # Filter out sequences that have length 0
-    seq_ok = [i for i, s in enumerate(sequences) if len(s) > 0]
-    valid_labels = [labels.iloc[i] for i in seq_ok]
+    # Filter out sequences with length 0
+    valid_indices = [i for i, s in enumerate(sequences) if len(s) > 0]
+    valid_labels = [labels.iloc[i] for i in valid_indices]
+    valid_sequences = [sequences[i] for i in valid_indices]
 
-    # Padding sequences
-    filtered_sequences = [sequences[i] for i in seq_ok]
-    x_pad = pad_sequences(filtered_sequences, maxlen=maxlen)
+    # Pad sequences to the specified maximum length
+    padded_sequences = pad_sequences(valid_sequences, maxlen=maxlen)
 
-
-    return x_pad, valid_labels, tokenizer
+    return padded_sequences, valid_labels, tokenizer
 
 ```
 
@@ -658,11 +617,6 @@ sentence_data = sentence_data[~sentence_data['president'].isin(remove_presidents
 seed = 1
 
 # Set the save directory of the models
-
-```
-
-```{python}
-
 save_directory = "saved_files/assignment1_savedvals"
 
 ```
@@ -677,12 +631,12 @@ Lastly, when Naive Bayes was paired with the bag of words method, post-optimisat
 
 ```{python}
 
-x = bow_x(sentence_data)
+x = bow(sentence_data)
 y = sentence_data['president']
 
 # Prepare data
-data = prepare_data(data_prep, x, y)
-X_train, y_train, X_val, y_val, X_test, y_test, inp_dim, count_classes = data['X_train'], data['y_train'], data['X_val'], data['y_val'], data['X_test'], data['y_test'], data['inp_dim'], data['count_classes']
+data = prepare_data(prepare_dataset, x, y)
+X_train, y_train, X_val, y_val, X_test, y_test, input_dim, num_classes = data['X_train'], data['y_train'], data['X_val'], data['y_val'], data['X_test'], data['y_test'], data['input_dim'], data['num_classes']
 
 # Scaled data for SVM
 # scaler = cuml.preprocessing.StandardScaler()
@@ -704,7 +658,7 @@ X_train, y_train, X_val, y_val, X_test, y_test, inp_dim, count_classes = data['X
 
 # with tf.device('/device:GPU:0'):
 #  nn_bow_tune = hyperparameter_search_nn(seed,
-#                                        neural_net,
+#                                        train_neural_network,
 #                                        X_train, y_train,
 #                                        X_val, y_val,
 #                                        X_test, y_test)
@@ -912,9 +866,8 @@ x = tf_idf(sentence_data)
 y = sentence_data['president']
 
 # Prepare the data
-data = prepare_data(data_prep, x, y)
-X_train, y_train, X_val, y_val, X_test, y_test, inp_dim, count_classes = data['X_train'], data['y_train'], data['X_val'], data['y_val'], data['X_test'], data['y_test'], data['inp_dim'], data['count_classes']
-
+data = prepare_data(prepare_dataset, x, y)
+X_train, y_train, X_val, y_val, X_test, y_test, input_dim, num_classes = data['X_train'], data['y_train'], data['X_val'], data['y_val'], data['X_test'], data['y_test'], data['input_dim'], data['num_classes']
 
 # Scaled data for SVM
 # scaler = cuml.preprocessing.StandardScaler()
@@ -934,7 +887,7 @@ X_train, y_train, X_val, y_val, X_test, y_test, inp_dim, count_classes = data['X
 
 # with tf.device('/device:GPU:0'):
 #   nn_tf_tune = hyperparameter_search_nn(seed,
-#                                         neural_net,
+#                                         train_neural_network,
 #                                         X_train, y_train,
 #                                         X_val, y_val,
 #                                         X_test, y_test)
@@ -1128,8 +1081,8 @@ Incorporating the Naive Bayes model with text embedding, post-optimisation, the 
 x, y, _ = tokenize_text(sentence_data['sentence'], sentence_data['president'])
 x_df = pd.DataFrame(x)
 
-data = prepare_data(data_prep, x_df, y)
-X_train, y_train, X_val, y_val, X_test, y_test, inp_dim, count_classes = data['X_train'], data['y_train'], data['X_val'], data['y_val'], data['X_test'], data['y_test'], data['inp_dim'], data['count_classes']
+data = prepare_data(prepare_dataset, x_df, y)
+X_train, y_train, X_val, y_val, X_test, y_test, input_dim, num_classes = data['X_train'], data['y_train'], data['X_val'], data['y_val'], data['X_test'], data['y_test'], data['input_dim'], data['num_classes']
 
 # Scaled data for SVM
 # scaler = cuml.preprocessing.StandardScaler()
@@ -1149,7 +1102,7 @@ X_train, y_train, X_val, y_val, X_test, y_test, inp_dim, count_classes = data['X
 
 # with tf.device('/device:GPU:0'):
 #   nn_emb_tune = hyperparameter_search_nn(seed,
-#                                         neural_net,
+#                                         train_neural_network,
 #                                         X_train, y_train,
 #                                         X_val, y_val,
 #                                         X_test, y_test)
@@ -1397,26 +1350,10 @@ test_ds = df_to_tfdata(test_df, shuffle=False)
 ```{python}
 
 def save_output(train_true, train_pred, val_true, val_pred, test_true, test_pred, filename):
-    """
-    Save the evaluation outputs to a file.
-    
-    Parameters:
-    - train_true, train_pred, val_true, val_pred, test_true, test_pred: Outputs to save.
-    - filename: Path to the file where the outputs will be saved.
-    """
     with open(filename, 'wb') as f:
         pickle.dump((train_true, train_pred, val_true, val_pred, test_true, test_pred), f)
 
 def load_output(filename):
-    """
-    Load the evaluation outputs from a file.
-    
-    Parameters:
-    - filename: Path to the file from where the outputs will be loaded.
-    
-    Returns:
-    - train_true, train_pred, val_true, val_pred, test_true, test_pred: Loaded outputs.
-    """
     with open(filename, 'rb') as f:
         train_true, train_pred, val_true, val_pred, test_true, test_pred = pickle.load(f)
     return train_true, train_pred, val_true, val_pred, test_true, test_pred

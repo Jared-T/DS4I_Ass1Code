@@ -291,7 +291,7 @@
     "href": "full_write_up.html#sentence-similarity-between-presidents",
     "title": "Assignment 1 Full Writeup",
     "section": "Sentence similarity between presidents",
-    "text": "Sentence similarity between presidents\n\n\n2023-10-18 11:08:07.238322: I tensorflow/core/platform/cpu_feature_guard.cc:182] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.\nTo enable the following instructions: AVX2 FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags."
+    "text": "Sentence similarity between presidents\n\n\n2023-10-18 11:41:09.421719: I tensorflow/core/platform/cpu_feature_guard.cc:182] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.\nTo enable the following instructions: AVX2 FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags."
   },
   {
     "objectID": "full_write_up.html#bag-of-words-bow-representation",
