@@ -1,0 +1,20 @@
+---
+title: "Discussion and Conclusion"
+format: html
+---
+
+## Discussion:
+
+This study aimed to figure out which of the South African presidents, from 1994 to 2022, might have said certain sentences during their State of the Nation Address (SONA). Different ways of processing the text, such as Bag of Words (BoW), Term Frequency-Inverse Document Frequency (tf-idf), and text embeddings, were used. These methods were then paired with machine learning models to see which combination worked best.
+
+With the Bag of Words (BoW) method, the feed-forward neural network did well in training but not as well in validation, suggesting it might not do well with new, unseen data. The SVM and Naive Bayes models had similar outcomes. The tf-idf method gave results close to BoW for the neural net and SVM, but Naive Bayes seemed a bit more stable. However, simple text embeddings didn't work as well across the board. This could be because these embeddings might be too basic to capture the unique way presidents speak in their SONA addresses.
+
+On the other hand, using BERT embeddings with a pre-trained model gave us some hope. The model kept getting better during training, and its test results were the best among all the models. This suggests that using advanced methods like BERT might be the way forward for such tasks.
+
+## Conclusion:
+
+This study shows how important it is to pick the right method to process text and the right model to analyse it. While methods like BoW and tf-idf gave decent results, simple text embeddings didn't do as well. But, the combination of BERT embeddings and a pre-trained model stood out.
+
+This has two main takeaways. First, for researchers looking into political speeches, these models can help in figuring out who might have said an unattributed speech. Second, for those into machine learning, it highlights the growing role of advanced methods like BERT.
+
+Looking ahead, it might be worth exploring even better text processing methods or fine-tuning models like BERT for even more accurate results. Overall, this study shows the exciting possibilities when combining tech with the study of political speeches.

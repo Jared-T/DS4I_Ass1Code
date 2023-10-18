@@ -1,0 +1,152 @@
+---
+title: "Methods"
+format: html
+---
+
+## 1. Text Representation Techniques
+
+### a. Bag-of-Words (BoW)
+
+The Bag-of-Words (BoW) representation is a simplistic yet effective method for text data representation. It hinges on representing text by its constituent words, disregarding their order. Here, each word operates as a feature, with the text being represented by a vector that denotes the frequency of each word [@vm2019implementation].
+
+Formally, given a vocabulary $V$ comprising $N$ unique words, each document $d$ can be depicted as a vector $\mathbf{v}_d$ in $\mathbb{R}^N$ , where the i-th element $v_{d,i}$ denotes the frequency of the i-th word in the document:
+
+$$ 
+\mathbf{v}_d = [v_{d,1}, v_{d,2}, \ldots, v_{d,N}]
+$$
+
+The dataset was transformed into a BoW representation with each row corresponding to a sentence, and each column reflecting the frequency of a word in that sentence. The `CountVectorizer` class from the `sklearn.feature_extraction.text` module was employed for this task, with English stop words being excluded to filter out prevalent words that lack significant meaning, such as "and", "the", and "is" [@pedregosa2011scikit].
+
+### b. Term Frequency-Inverse Document Frequency (TF-IDF)
+
+Contrastingly, the TF-IDF representation scales the frequency of words based on their occurrence across all documents, ensuring that words appearing too frequently across documents (potentially bearing lesser discriminative importance) are assigned lower weights [@geeksforgeekstfidf, @monkeylearntfidf].
+
+The term frequency (TF) of a word in a document is the raw count of that word in the document. The inverse document frequency (IDF) of a word is defined as:
+
+$$
+\text{IDF}(w) = \log \left( \frac{N}{1 + \text{count}(w)} \right)
+$$
+
+where $N$ signifies the total number of documents and $\text{count}(w)$ represents the number of documents containing the word $w$. The TF-IDF value for a word in a document is then the product of its TF and IDF values [@geeksforgeekstfidf, @monkeylearntfidf].
+
+The `TfidfVectorizer` class from the `sklearn.feature_extraction.text` module was employed to transform our dataset into this representation [@pedregosa2011scikit].
+
+### c. Text Embedding
+
+For processing by deep learning models like neural networks, textual data was tokenized and converted into sequences of numbers. The `Tokenizer` class from the `keras.preprocessing.text` module was utilized for this purpose. Subsequently, sentences were padded with zeros using `pad_sequences` from the `keras.preprocessing.sequence` module to ensure uniform length [@chollet2015keras].
+
+## 2. Model Architectures and Training
+
+### a. Feed-Forward Neural Network
+
+Feed-forward neural networks (FFNNs) are a subset of artificial neural networks characterized by acyclic connections between nodes. They encompass multiple layers: an input layer, several hidden layers, and an output layer [@rumelhart1986learning].
+
+The architecture of the neural network employed in this study is delineated as follows:
+
+- Input Layer: This layer harbors neurons equal to the number of features in the dataset (word counts for BoW and TF-IDF, sequence length for text embeddings). The Rectified Linear Unit (ReLU) activation function was utilized owing to its efficiency and capability to mitigate the vanishing gradient issue:
+
+$$ 
+f(x) = \max(0, x)
+$$
+
+- Hidden Layers: Several hidden layers were introduced, each utilizing He initialization, which is proficient for layers with ReLU activation. A dropout layer succeeded each hidden layer to curb overfitting by randomly nullifying a fraction of input units during each training update.
+
+- Output Layer: This layer contains neurons equal to the number of classes (presidents, in our scenario). The softmax function was employed as the activation function, generating a probability distribution over the classes:
+
+$$ 
+\sigma(\mathbf{z})_i = \frac{e^{z_i}}{\sum_{j=1}^{K} e^{z_j}}
+$$
+
+for $i = 1, \ldots, K$ and $\mathbf{z}$ is the input vector to the softmax function.
+
+Training was conducted using the Adam optimization algorithm with a learning rate of 0.001. Adam is adept at training deep neural networks via computing adaptive learning rates for each parameter, leveraging moving averages of the parameter gradients and squared gradients.
+
+The `EarlyStopping` and `ReduceLROnPlateau` callbacks were also enlisted. The former halts the training process if validation loss ceases to improve for a stipulated number of epochs, while the latter diminishes the learning rate if the validation loss reaches a plateau [@chollet2015keras].
+
+### b. Support Vector Machine (SVM)
+
+The Support Vector Machine (SVM) is a supervised learning algorithm suitable for both classification and regression tasks. It operates by identifying the optimal hyperplane that segregates a dataset into distinct classes. Provided a set of training examples, each labeled as belonging to one of two categories, the SVM training algorithm constructs a model that categorizes new examples into one of the two categories [@cortes1995support].
+
+Mathematically, given labeled training data $(x_1, y_1), \ldots, (x_N, y_N)$ where $x_i$ belongs to $\mathbb{R}^D$ and $y_i$ is either 1 or -1 (indicating the class the input $x_i$ belongs to), SVM seeks the hyperplane defined by $w$ and $b$ that optimally separates the data points of the two classes [@cortes1995support]:
+
+$$ 
+y_i(w \cdot x_i + b) \geq 1
+$$
+
+The objective of SVM is to maximize the margin, which is the distance between the hyperplane and the nearest point from either class. The decision function is then given by:
+
+$$ 
+f(x) = \text{sign}(w \cdot x + b)
+$$
+
+### c. Naive Bayes Classifier
+
+Naive Bayes is a probabilistic classifier predicated on Bayes' theorem with strong (naive) independence assumptions among features [@raschka2014naive]. Given a set of features $X = x_1, \ldots, x_n$ and a class variable $C$, Bayes' theorem states:
+
+$$ 
+P(C|X) = \frac{P(X|C) \times P(C)}{P(X)}
+$$
+
+The Naive Bayes classifier posits that the effect of a particular feature in a class is independent of other features. This simplification expedites computation, hence the term 'naive' [@raschka2014naive].
+
+In our problem, the Naive Bayes classifier estimates the probability of a sentence belonging to each president's class based on the features (word frequencies for BoW or TF-IDF values). The sentence is then classified to the class (president) with the highest probability.
+
+## 3. Model Evaluation
+
+Evaluating the performance of machine learning models is paramount as it unveils the efficacy of the model and areas of potential improvement. Our evaluation paradigm leverages standard metrics including accuracy, precision, recall, and F1 score to quantify various facets of the model's predictions in a multi-class classification setting such as ours, where predictions could be true or false for multiple classes (presidents, in this case).
+
+### a. Accuracy
+
+Accuracy furnishes a broad overview of the model's performance and is calculated as the ratio of correct predictions to the total predictions:
+
+$$ 
+\text{Accuracy} = \frac{\text{Number of Correct Predictions}}{\text{Total Number of Predictions}}
+$$
+
+Nonetheless, in imbalanced datasets, accuracy could be misleading.
+
+### b. Precision
+
+Precision scrutinizes the model's positive predictions. Specifically, it computes the frequency at which the model correctly predicted a specific president out of all predictions for that president:
+
+$$ 
+\text{Precision (for a given president)} = \frac{\text{True Positives}}{\text{True Positives} + \text{False Positives}}
+$$
+
+Where:
+
+- True Positives (TP): The number of sentences correctly identified as belonging to that president.
+
+- False Positives (FP): The number of sentences erroneously identified as belonging to that president, while they belong to a different one.
+
+Precision is particularly crucial in scenarios where the cost of a false positive is high.
+
+### c. Recall (or Sensitivity)
+
+Recall evaluates how effectively the model identifies sentences from a specific president. It calculates the proportion of actual sentences from a president that the model correctly identified:
+
+$$ 
+\text{Recall (for a given president)} = \frac{\text{True Positives}}{\text{True Positives} + \text{False Negatives}}
+$$
+
+Where:
+
+- False Negatives (FN): The number of sentences that genuinely belong to a president but were misclassified as belonging to another.
+
+Recall is vital in contexts where missing a true instance is significant.
+
+### d. F1 Score
+
+The F1 score is the harmonic mean of precision and recall, providing a balance between them. It achieves its best value at 1 (perfect precision and recall) and its worst at 0:
+
+$$ 
+\text{F1 Score} = 2 \times \frac{\text{Precision} \times \text{Recall}}{\text{Precision} + \text{Recall}}
+$$
+
+The F1 score is particularly useful when there is an uneven data distribution among classes.
+
+These metrics were computed for each president in our dataset and then averaged (weighted by the number of true instances for each president) to derive a single value representing the overall model's performance. This approach ensures that the model's aptitude to predict less frequent classes (presidents with fewer sentences) is considered, rendering the evaluation more robust and representative of the model's true capabilities in a multi-class setting.
+
+Moreover, the models were also assessed on separate training and test datasets. The training dataset is the learning corpus for the model, while the test dataset presents a fresh, unseen set of data points to gauge the model's generalization to new data. This separation is pivotal to ensure that the model doesn’t merely memorize the training data (overfitting), but discerns the underlying patterns determining which president uttered a given sentence.
+
+

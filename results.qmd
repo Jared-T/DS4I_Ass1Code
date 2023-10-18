@@ -1,0 +1,1500 @@
+---
+title: "Results"
+format: html
+execute: 
+  echo: false
+  cache: true
+---
+
+```{python}
+#| output: false
+
+from keras.layers import Dropout, BatchNormalization
+from keras.callbacks import EarlyStopping, ReduceLROnPlateau, ModelCheckpoint
+from keras.initializers import he_normal
+from sklearn.metrics import confusion_matrix
+import seaborn as sns
+import matplotlib.pyplot as plt
+import pandas as pd
+import re
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
+import pickle
+import os
+import numpy as np
+import tensorflow as tf
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error
+from math import sqrt
+from sklearn.preprocessing import LabelEncoder
+import keras
+from keras.models import Sequential
+from keras.layers import Dense
+from keras.utils import to_categorical
+from keras.models import Sequential
+from keras.layers import Dense
+from keras.regularizers import l2
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report
+from keras.preprocessing.text import Tokenizer
+from keras.preprocessing.sequence import pad_sequences
+from keras.models import load_model
+import json
+# import cuml
+from IPython.display import Image, display
+
+```
+
+
+```{python}
+
+def neural_net(neurons_per_layer, l2_reg_value, epochs, dropout_rate=0.5):
+    model = Sequential()
+
+    # Input layer with He initialization
+    model.add(Dense(neurons_per_layer[0], activation='relu', input_dim=inp_dim, kernel_regularizer=l2(l2_reg_value), kernel_initializer=he_normal()))
+    model.add(BatchNormalization())
+    model.add(Dropout(dropout_rate))
+
+    # Hidden layers with He initialization
+    for num_neurons in neurons_per_layer[1:]:
+        model.add(Dense(num_neurons, activation='relu', kernel_regularizer=l2(l2_reg_value), kernel_initializer=he_normal()))
+        model.add(BatchNormalization())
+        model.add(Dropout(dropout_rate))
+
+    # Output layer
+    model.add(Dense(count_classes, activation='softmax'))
+
+    # Adjusted learning rate for Adam optimizer
+    opt = keras.optimizers.Adam(learning_rate=0.001)
+    model.compile(optimizer=opt, loss='categorical_crossentropy', metrics=['accuracy'])
+
+    # Callbacks
+    early_stopping = EarlyStopping(monitor='val_loss', patience=10, verbose=1, restore_best_weights=True)
+    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=5, verbose=1, min_delta=0.0001)
+    model_checkpoint = ModelCheckpoint('best_model.h5', monitor='val_loss', mode='min', save_best_only=True, verbose=1)
+
+    history = model.fit(X_train, y_train, epochs=epochs, validation_data=(X_val, y_val), callbacks=[early_stopping, reduce_lr, model_checkpoint])
+
+    # Evaluate the model on training and test data
+    scores_train = model.evaluate(X_train, y_train, verbose=1)
+    scores_test = model.evaluate(X_test, y_test, verbose=0)
+
+
+    print('Accuracy on training data: {:.2f}%\nError on training data: {:.2f}'.format(scores_train[1] * 100, (1 - scores_train[1]) * 100))
+    print('Accuracy on test data: {:.2f}%\nError on test data: {:.2f}'.format(scores_test[1] * 100, (1 - scores_test[1]) * 100))
+
+    # Access validation scores from the history object
+    val_loss = history.history['val_loss']
+    val_accuracy = history.history['val_accuracy']
+
+    y_pred = model.predict(X_test)
+    y_pred_classes = np.argmax(y_pred, axis=1)  # Convert one-hot encoded predictions to class labels
+
+    # Convert one-hot encoded ground truth labels to class labels
+    y_true_classes = np.argmax(y_test, axis=1)
+
+    # Calculate accuracy, precision, recall, and F1 score
+    accuracy = accuracy_score(y_true_classes, y_pred_classes)
+    precision = precision_score(y_true_classes, y_pred_classes, average='weighted')
+    recall = recall_score(y_true_classes, y_pred_classes, average='weighted')
+    f1 = f1_score(y_true_classes, y_pred_classes, average='weighted')
+
+    return {
+        'val_loss': val_loss,
+        'val_accuracy': val_accuracy,
+        'train_loss': history.history['loss'],
+        'train_accuracy': history.history['accuracy'],
+        'test_loss': scores_test[0],
+        'test_accuracy': scores_test[1],
+        'precision': precision,
+        'recall': recall,
+        'f1_score': f1,
+        'model': model,
+        'history': history
+        }
+
+```
+
+
+```{python}
+
+save_directory2 = "saved_files/assignment1_saved_results"
+
+def save_model_params(output, base_filename):
+    # If the output contains a Keras model
+    if 'best_model' in output and hasattr(output['best_model'], 'save_weights'):
+        print("Saving Keras model architecture and weights...")
+
+        # Save the entire model (architecture + weights)
+        output['best_model'].save(base_filename + '_full_model.h5')
+        output['best_model'] = "MODEL_SAVED_SEPARATELY"
+    else:
+        print("No Keras model detected or model does not support weight saving.")
+
+    # Serialize the modified dictionary
+    with open(base_filename + '.pkl', 'wb') as file:
+        pickle.dump(output, file)
+    print(f"Data saved to {base_filename}.pkl")
+
+def load_model_params(base_filename, model_architecture_func=None):
+    # Deserialize the dictionary
+    with open(base_filename + '.pkl', 'rb') as file:
+        output = pickle.load(file)
+
+    # If there's a placeholder for the Keras model
+    if 'best_model' in output and output['best_model'] == "MODEL_SAVED_SEPARATELY":
+        print("Loading Keras model architecture and weights...")
+
+        # Load the entire model (architecture + weights)
+        model = tf.keras.models.load_model(base_filename + '_full_model.h5')
+        output['best_model'] = model
+    else:
+        print("No placeholder for Keras model detected in the loaded data.")
+
+    return output
+
+def save_results(results, save_directory):
+    if not os.path.exists(save_directory):
+        os.makedirs(save_directory)
+
+    # Save Accuracy Plot
+    if 'fig_acc' in results:
+        results['fig_acc'].savefig(os.path.join(save_directory, 'fig_acc.png'))
+        del results['fig_acc']
+
+    # Save Confusion Matrix
+    if 'fig_cm' in results:
+        results['fig_cm'].savefig(os.path.join(save_directory, 'fig_cm.png'))
+        del results['fig_cm']
+
+    # Save the rest of the results
+    with open(os.path.join(save_directory, 'results.pkl'), 'wb') as f:
+        pickle.dump(results, f)
+
+def load_results(load_directory):
+    results = {}
+
+    # Load Accuracy Plot
+    if os.path.exists(os.path.join(load_directory, 'fig_acc.png')):
+        results['fig_acc'] = os.path.join(load_directory, 'fig_acc.png')
+
+    # Load Confusion Matrix
+    if os.path.exists(os.path.join(load_directory, 'fig_cm.png')):
+        results['fig_cm'] = os.path.join(load_directory, 'fig_cm.png')
+
+    # Load the rest of the results
+    if os.path.exists(os.path.join(load_directory, 'results.pkl')):
+        with open(os.path.join(load_directory, 'results.pkl'), 'rb') as f:
+            data = pickle.load(f)
+        results.update(data)
+
+    return results
+
+# Helper function to style DataFrames
+def style_df(df):
+    numeric_cols = df.select_dtypes(include=['number']).columns
+    format_dict = {col: "{:.3f}" for col in numeric_cols}
+    return df.style.set_table_styles({
+        '': [{'selector': '',
+              'props': [('border', '1px solid black')]}]
+    }).format(format_dict).hide()
+
+# Mapping for column names
+column_mapping = {
+    'train_accuracy': 'Training Accuracy',
+    'val_accuracy': 'Validation Accuracy',
+    'test_accuracy': 'Test Accuracy',
+    'Hyperparameter Value': 'Hyperparameter Value'
+}
+
+def display_accuracy_plot(loaded_results):
+    if 'fig_acc' in loaded_results:
+        display(Image(filename=loaded_results['fig_acc']))
+
+def display_results_table(loaded_results):
+    if 'results_table' in loaded_results:
+        df = loaded_results['results_table'].rename(columns=column_mapping)
+        display(style_df(df))
+
+def display_table_nn(loaded_results):
+    if 'table_nn' in loaded_results:
+        df = loaded_results['table_nn'].rename(columns=column_mapping)
+        display(style_df(df))
+
+def display_table_others(loaded_results):
+    if 'table_others' in loaded_results:
+        table = loaded_results['table_others'].rename(columns=column_mapping)
+        # Extracting best row based on highest validation accuracy
+        best_row = table[table['Validation Accuracy'] == table['Validation Accuracy'].max()]
+        
+        # Creating a dataframe for neat display
+        best_df = pd.DataFrame({
+            'Hyperparameter Value': best_row.iloc[0, 0],
+            'Training Accuracy': best_row['Training Accuracy'].values,
+            'Validation Accuracy': best_row['Validation Accuracy'].values,
+            'Test Accuracy': best_row['Test Accuracy'].values
+        })
+        
+        display(style_df(best_df))
+        display(style_df(table))
+
+def display_confusion_matrix(loaded_results):
+    if 'fig_cm' in loaded_results:
+        display(Image(filename=loaded_results['fig_cm']))
+
+def display_test_classification_report(loaded_results):
+     # Extracting and formatting values from the loaded_results dictionary
+    precision_val = "{:.3f}".format(loaded_results['test_report']['precision']).rstrip('0').rstrip('.')
+    recall_val = "{:.3f}".format(loaded_results['test_report']['recall']).rstrip('0').rstrip('.')
+    f1_score_val = "{:.3f}".format(loaded_results['test_report']['f1_score']).rstrip('0').rstrip('.')
+
+    # Creating a 2D array with headers and values
+    data = [
+        ['Metric', 'Value'],
+        ['Precision', precision_val],
+        ['Recall', recall_val],
+        ['F1 Score', f1_score_val]
+    ]
+
+    # Creating the DataFrame without index and displaying it
+    manual_df = pd.DataFrame(data[1:], columns=data[0])
+    display(manual_df.style.hide())
+
+
+
+```
+
+
+```{python}
+
+# The data prep function is called after preparing the data according to BoW, TF-IDF and token embeddings.
+def data_prep(x,y):
+    # First, split into train and a temporary set (test + validation) using stratification
+    X_train, X_temp, y_train, y_temp = train_test_split(x, y, test_size=0.3, stratify=y, random_state=seed)
+
+    # Split the temporary set into test and validation sets, again using stratification
+    X_test, X_val, y_test, y_val = train_test_split(X_temp, y_temp, test_size=0.5, stratify=y_temp, random_state=seed)
+
+    X_train = X_train.values
+    X_val = X_val.values
+    X_test = X_test.values
+
+    label_encoder = LabelEncoder()
+
+    # Fit and transform the labels to integer labels
+    y_train_encoded = label_encoder.fit_transform(y_train)
+    y_val_encoded = label_encoder.transform(y_val)  # Use transform, not fit_transform
+    y_test_encoded = label_encoder.transform(y_test)  # Use transform, not fit_transform
+
+    # Convert to one-hot encoded vector
+    y_train = to_categorical(y_train_encoded)
+    y_val = to_categorical(y_val_encoded)
+    y_test = to_categorical(y_test_encoded)
+
+    # dimensions
+    inp_dim = X_test.shape[1]
+    count_classes = y_test.shape[1]
+
+    return {
+        'X_train': X_train,
+        'X_val': X_val,
+        'X_test': X_test,
+        'y_train': y_train,
+        'y_val': y_val,
+        'y_test': y_test,
+        'inp_dim': inp_dim,
+        'count_classes': count_classes
+    }
+
+```
+
+
+```{python}
+
+def prepare_data(data_preparation_func, x, y):
+    data = data_preparation_func(x, y)
+    return data
+
+
+def hyperparameter_search_nn(seed, neural_net_func, X_train, y_train, X_val, y_val, X_test, y_test):
+    np.random.seed(seed)
+
+    neurons_space = [[800, 300], [800, 300, 100]]
+    l2_reg_space = [0, 0.001, 0.01]
+    dropout_space = [0.2, 0.4]
+    num_epochs_space = [20]
+
+    best_val_accuracy = 0
+    best_params = {}
+    best_model = None
+    best_train_accuracies = []
+    best_val_accuracies = []
+
+    results_list = []
+
+    for neurons in neurons_space:
+        for l2_reg in l2_reg_space:
+            for dropout_rate in dropout_space:
+                for epochs in num_epochs_space:
+                    print(f"Training with: neurons={neurons}, l2_reg={l2_reg}, dropout={dropout_rate}, epochs={epochs}")
+
+                    results = neural_net_func(neurons_per_layer=neurons,
+                                              l2_reg_value=l2_reg,
+                                              epochs=epochs,
+                                              dropout_rate=dropout_rate)
+
+                    results_list.append({
+                        'neurons': str(neurons),
+                        'l2_reg': l2_reg,
+                        'dropout_rate': dropout_rate,
+                        'epochs': epochs,
+                        'train_accuracy': results['train_accuracy'][-1],
+                        'val_accuracy': results['val_accuracy'][-1],
+                        'test_accuracy': results['test_accuracy']
+                    })
+
+                    if results['val_accuracy'][-1] > best_val_accuracy:
+                        best_val_accuracy = results['val_accuracy'][-1]
+                        best_model = results['model']
+                        history = results['history']
+                        best_params = {
+                            'neurons': neurons,
+                            'l2_reg': l2_reg,
+                            'dropout_rate': dropout_rate,
+                            'epochs': epochs,
+                            'val_accuracy': best_val_accuracy
+                        }
+                        best_train_accuracies = results['train_accuracy']
+                        best_val_accuracies = results['val_accuracy']
+
+    results_df = pd.DataFrame(results_list)
+
+    output = {
+        'best_train_accuracies': best_train_accuracies,
+        'best_val_accuracies': best_val_accuracies,
+        'best_model': best_model,
+        'results_df': results_df,
+        'history': history
+    }
+
+    return output
+
+def train_evaluate_svm(X_train, y_train, X_val, y_val, X_test, y_test, seed):
+    scaler = cuml.preprocessing.StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_val_scaled = scaler.transform(X_val)
+    X_test_scaled = scaler.transform(X_test)
+
+    y_train_int = np.argmax(y_train, axis=1)
+    y_val_int = np.argmax(y_val, axis=1)
+    y_test_int = np.argmax(y_test, axis=1)
+
+    best_C = 1
+    best_val_accuracy = 0
+    C_values = [0.001, 0.01, 0.1, 0.5, 1, 10, 100]
+    results_list = []
+
+    for C in C_values:
+        svm_clf = cuml.svm.SVC(C=C, class_weight='balanced', random_state=seed, max_iter=1000)
+        svm_clf.fit(X_train_scaled, y_train_int)
+        y_val_pred = svm_clf.predict(X_val_scaled)
+        val_accuracy = cuml.metrics.accuracy_score(y_val_int, y_val_pred)
+
+        results_list.append({
+            'C': C,
+            'train_accuracy': cuml.metrics.accuracy_score(y_train_int, svm_clf.predict(X_train_scaled)),
+            'val_accuracy': val_accuracy,
+            'test_accuracy': cuml.metrics.accuracy_score(y_test_int, svm_clf.predict(X_test_scaled))
+        })
+
+        if val_accuracy > best_val_accuracy:
+            best_val_accuracy = val_accuracy
+            best_C = C
+
+    best_svm_clf = cuml.svm.SVC(C=best_C, class_weight='balanced', random_state=seed, max_iter=1000)
+    best_svm_clf.fit(X_train_scaled, y_train_int)
+
+    results_df = pd.DataFrame(results_list)
+
+    output = {
+        'best_model': best_svm_clf,
+        'results_df': results_df
+    }
+
+    return output
+
+def train_evaluate_nb(X_train, y_train, X_val, y_val, X_test, y_test):
+    param_grid = {'alpha': [0.001, 0.01, 0.1, 1.0, 10.0]}
+    results_list = []
+
+    for alpha in param_grid['alpha']:
+        nb_clf = MultinomialNB(alpha=alpha)
+        nb_clf.fit(X_train, np.argmax(y_train, axis=1))
+        
+        results_list.append({
+            'alpha': alpha,
+            'train_accuracy': accuracy_score(np.argmax(y_train, axis=1), nb_clf.predict(X_train)),
+            'val_accuracy': accuracy_score(np.argmax(y_val, axis=1), nb_clf.predict(X_val)),
+            'test_accuracy': accuracy_score(np.argmax(y_test, axis=1), nb_clf.predict(X_test))
+        })
+
+    results_df = pd.DataFrame(results_list)
+    best_alpha = results_df.loc[results_df['val_accuracy'].idxmax(), 'alpha']
+    best_nb_clf = MultinomialNB(alpha=best_alpha)
+    best_nb_clf.fit(X_train, np.argmax(y_train, axis=1))
+
+    output = {
+        'best_model': best_nb_clf,
+        'results_df': results_df
+    }
+
+    return output
+
+```
+
+
+
+```{python}
+
+def plot_accuracies(title, x_label, x_data, train_accuracies, val_accuracies):
+    """
+    Plots training and validation accuracies.
+
+    Parameters:
+        - title (str): Title for the plot.
+        - x_label (str): X-axis label.
+        - x_data (list): X-axis data.
+        - train_accuracies (list): Training accuracies.
+        - val_accuracies (list): Validation accuracies.
+    """
+    plt.figure(figsize=(10, 6))
+    plt.plot(x_data, train_accuracies, '-o', label='Training Accuracy', color='blue')
+    plt.plot(x_data, val_accuracies, '-o', label='Validation Accuracy', color='red')
+    plt.title(title)
+    plt.xlabel(x_label)
+    plt.ylabel('Accuracy')
+    plt.legend()
+    plt.grid(True)
+    return plt.gcf()
+
+def display_results_table(df):
+    """
+    Displays the results DataFrame as a table.
+
+    Parameters:
+        - df (DataFrame): Results DataFrame.
+    """
+    display(df)
+
+
+def plot_confusion_matrix(y_true, y_pred, title, class_labels=None):
+    """
+    Plots a confusion matrix using seaborn's heatmap() with adjustments for label formats.
+
+    Parameters:
+        - y_true (array-like): True labels.
+        - y_pred (array-like): Predicted labels.
+        - title (str): Title for the heatmap.
+        - class_labels (list, optional): List of class labels.
+    """
+    # Convert one-hot encoded labels to label encoded format if necessary
+    if len(y_true.shape) > 1 and y_true.shape[1] > 1:
+        y_true = np.argmax(y_true, axis=1)
+    if len(y_pred.shape) > 1 and y_pred.shape[1] > 1:
+        y_pred = np.argmax(y_pred, axis=1)
+
+    cm = confusion_matrix(y_true, y_pred, labels=class_labels)
+    plt.figure(figsize=(10, 7))
+    sns.heatmap(cm, annot=True, fmt='g', cmap='Blues', cbar=False)
+    plt.xlabel('Predicted Labels')
+    plt.ylabel('True Labels')
+    plt.title(title)
+    return plt.gcf()
+
+
+def visualize_and_verify_results(output, X_val, y_val, X_test, y_test, classifier_type, class_labels=None):
+    """
+    Extended visualization and verification function to handle SVM and NB predictions.
+
+    Parameters:
+        - output (dict): Output from the tuning methods.
+        - X_val (array-like): Validation features.
+        - y_val (array-like): Validation targets.
+        - X_test (array-like): Test features.
+        - y_test (array-like): Test targets.
+        - classifier_type (str): One of 'nn', 'svm', or 'nb'.
+        - class_labels (list, optional): List of class labels.
+
+    Returns:
+        results (dict): Dictionary containing plots, tables, and reports.
+    """
+    results = {}
+
+    # 1. Plot accuracies
+    if classifier_type == 'nn':
+        fig_acc = plot_accuracies("Neural Network Accuracies",
+                                  "Epochs",
+                                  list(range(1, len(output['best_train_accuracies']) + 1)),
+                                  output['best_train_accuracies'],
+                                  output['best_val_accuracies'])
+        results['fig_acc'] = fig_acc
+    elif classifier_type in ['svm', 'nb']:
+        param_key = 'C' if classifier_type == 'svm' else 'alpha'
+        fig_acc = plot_accuracies(f"{classifier_type.upper()} Accuracies",
+                                  param_key,
+                                  output['results_df'][param_key],
+                                  output['results_df']['train_accuracy'],
+                                  output['results_df']['val_accuracy'])
+        results['fig_acc'] = fig_acc
+
+    # 2. Display results table
+    if classifier_type == 'nn':
+        metrics = {
+            'train_accuracy': output['best_train_accuracies'][-1],
+            'val_accuracy': output['best_val_accuracies'][-1]
+        }
+        results['table_nn'] = pd.DataFrame([metrics])
+    else:
+        results['table_others'] = output['results_df']
+
+    # 3. Plot confusion matrices and generate reports
+    if 'best_model' in output:
+        if classifier_type == 'nn':
+            y_pred = output['best_model'].predict(X_test)
+            y_pred_classes = np.argmax(y_pred, axis=1)
+        else:
+            y_pred_classes = output['best_model'].predict(X_test)
+
+        y_true_classes = np.argmax(y_test, axis=1) if len(y_test.shape) > 1 and y_test.shape[1] > 1 else y_test
+        fig_cm = plot_confusion_matrix(y_true_classes,
+                                       y_pred_classes,
+                                       f"Test Confusion Matrix - {classifier_type.upper()}",
+                                       class_labels)
+        results['fig_cm'] = fig_cm
+
+        # 4. Classification reports
+        precision = precision_score(y_true_classes, y_pred_classes, average='weighted')
+        recall = recall_score(y_true_classes, y_pred_classes, average='weighted')
+        f1 = f1_score(y_true_classes, y_pred_classes, average='weighted')
+
+        results['test_report'] = {
+            'precision': precision,
+            'recall': recall,
+            'f1_score': f1
+        }
+
+    return results
+
+```
+
+
+```{python}
+
+def bow_x(data):
+    # Extract relevant columns
+    text_data = data['sentence']
+    y = data['president']
+
+    # Initialize a CountVectorizer for BOW representation
+    vectorizer = CountVectorizer(lowercase=True, token_pattern=r"(?u)\b\w+\b", stop_words='english')
+
+    # Fit and transform the text data
+    X = vectorizer.fit_transform(text_data)
+
+    # Create a DataFrame from the BOW representation
+    bow_df = pd.DataFrame(X.toarray(), columns=vectorizer.get_feature_names_out())
+
+    return bow_df
+
+
+def tf_idf(df):
+    sentences = df['sentence'].tolist()
+
+    # Create a TfidfVectorizer with stop words removal
+    tfidf_vectorizer = TfidfVectorizer(stop_words='english')
+
+    # Fit and transform the sentences to compute TF-IDF values
+    tfidf_matrix = tfidf_vectorizer.fit_transform(sentences)
+
+    # Create a new dataframe with TF-IDF values
+    tfidf_df = pd.DataFrame(tfidf_matrix.toarray(), columns=tfidf_vectorizer.get_feature_names_out())
+
+    return tfidf_df
+
+def tokenize_text(text_data, labels, max_features=10000, maxlen=100):
+    # Tokenization
+    tokenizer = Tokenizer(num_words=max_features)
+    tokenizer.fit_on_texts(text_data)
+    sequences = tokenizer.texts_to_sequences(text_data)
+
+    # Filter out sequences that have length 0
+    seq_ok = [i for i, s in enumerate(sequences) if len(s) > 0]
+    valid_labels = [labels.iloc[i] for i in seq_ok]
+
+    # Padding sequences
+    filtered_sequences = [sequences[i] for i in seq_ok]
+    x_pad = pad_sequences(filtered_sequences, maxlen=maxlen)
+
+
+    return x_pad, valid_labels, tokenizer
+
+```
+
+
+```{python}
+
+data_path = "data/sentences.csv"
+sentence_data = pd.read_csv(data_path)
+
+# Drop rows where 'sentence' is NaN
+sentence_data = sentence_data.dropna(subset=['sentence'])
+
+# Get the names of the two presidents with the lowest sentence counts
+remove_presidents = sentence_data['president'].value_counts().tail(2).index.tolist()
+
+# Filter the data to exclude sentences from these two presidents
+sentence_data = sentence_data[~sentence_data['president'].isin(remove_presidents)]
+
+# Set the seed
+seed = 1
+
+# Set the save directory of the models
+
+```
+
+```{python}
+
+save_directory = "saved_files/assignment1_savedvals"
+
+```
+
+## Bag of Words
+
+In the exploration of various models on a training set employing a bag of words representation, distinct performance disparities were observed. Firstly, utilising a feed-forward neural network, an impressive training accuracy of 0.99 was attained. However, its validation accuracy registered at 0.6, hinting at potential overfitting. An analysis of the test set predictions, as depicted by the confusion matrix, demonstrated that the correct classes were predominantly predicted for the corresponding sentences. Notably, the test set metrics were: precision at 0.595, recall at 0.569, and the f1 score also at 0.569.
+
+The employment of support vector machines (SVM) with the bag of words approach, post-tuning, yielded training and validation accuracies of 0.989 and 0.533 respectively, with the test accuracy being 0.55. The precision, recall, and f1 scores for this model stood at 0.551, 0.55, and 0.547 respectively.
+
+Lastly, when Naive Bayes was paired with the bag of words method, post-optimisation, it achieved training and validation accuracies of 0.89 and 0.592 respectively. This model appeared less prone to overfitting compared to its counterparts. For the test set, precision was measured at 0.624, recall at 0.615, and interestingly, the test accuracy was noted to be 0.616, slightly higher than the recall.
+
+```{python}
+
+x = bow_x(sentence_data)
+y = sentence_data['president']
+
+# Prepare data
+data = prepare_data(data_prep, x, y)
+X_train, y_train, X_val, y_val, X_test, y_test, inp_dim, count_classes = data['X_train'], data['y_train'], data['X_val'], data['y_val'], data['X_test'], data['y_test'], data['inp_dim'], data['count_classes']
+
+# Scaled data for SVM
+# scaler = cuml.preprocessing.StandardScaler()
+# X_train_scaled = scaler.fit_transform(X_train)
+# X_val_scaled = scaler.transform(X_val)
+# X_test_scaled = scaler.transform(X_test)
+
+# y_train_int = np.argmax(y_train, axis=1)
+# y_val_int = np.argmax(y_val, axis=1)
+# y_test_int = np.argmax(y_test, axis=1)
+
+```
+
+
+
+### Neural network
+
+```{python}
+
+# with tf.device('/device:GPU:0'):
+#  nn_bow_tune = hyperparameter_search_nn(seed,
+#                                        neural_net,
+#                                        X_train, y_train,
+#                                        X_val, y_val,
+#                                        X_test, y_test)
+
+# # Saving the model parameters
+# save_model_params(nn_bow_tune, os.path.join(save_directory, 'nn_bow_tune'))
+
+```
+
+```{python}
+
+# Load the tuned output
+# nn_bow_tuned = load_model_params(os.path.join(save_directory, 'nn_bow_tune'))
+
+# visualize_and_verify_results(nn_bow_tuned, X_val, y_val, X_test, y_test, 'nn', class_labels=None)
+
+```
+
+
+```{python}
+
+save_path = save_directory2 + "/bow_nn_results"
+# save_results(bow_nn_results, save_path)
+loaded_results = load_results(save_path)
+
+#display_loaded_results(loaded_results)
+
+```
+
+```{python}
+#| label: nn bow accuracy plot
+#| fig-cap: "An accuracy plot for the neural network model trained on the Bag of Words representation."
+
+display_accuracy_plot(loaded_results)
+
+```
+
+
+```{python}
+#| label: nn bow nn accuracies for the best fitted model
+#| tbl-cap: "A table of accuracies for the neural network model trained on the Bag of Words representation."
+
+display_table_nn(loaded_results)
+
+```
+
+
+```{python}
+#| label: nn bow table
+#| tbl-cap: "A table of results for the neural network model trained on the Bag of Words representation."
+
+display_table_others(loaded_results)
+
+```
+
+
+```{python}
+#| label: nn bow confusion matrix
+#| fig-cap: "A confusion matrix for the neural network model trained on the Bag of Words representation."
+
+display_confusion_matrix(loaded_results)
+
+```
+
+
+```{python}
+#| label: nn bow test classification report
+#| tbl-cap: "A table of test classification results for the neural network model trained on the Bag of Words representation."
+
+display_test_classification_report(loaded_results)
+
+```
+
+
+### Support Vector Machine
+
+```{python}
+
+# svm_results_bow = train_evaluate_svm(X_train, y_train, X_val, y_val, X_test, y_test, seed)
+
+# # Save the model parameters
+# save_model_params(svm_results_bow, os.path.join(save_directory, 'svm_bow_results'))
+
+# # Load the saved model parameters
+# svm_results_bow = load_model_params(os.path.join(save_directory, 'svm_bow_results'))
+
+# results = visualize_and_verify_results(svm_results_bow, X_val_scaled, y_val_int, X_test_scaled, y_test_int, 'svm', class_labels=None)
+
+# Save and load the results for later
+
+save_path = save_directory2 + "/bow_svm_results"
+# save_results(results, save_path)
+loaded_results = load_results(save_path)
+#display_loaded_results(loaded_results)
+
+```
+
+```{python}
+#| label: svm bow accuracy plot
+#| fig-cap: "An accuracy plot for the SVM model trained on the Bag of Words representation."
+
+display_accuracy_plot(loaded_results)
+
+```
+
+
+```{python}
+#| label: svm bow tuning table
+#| tbl-cap: "A table of hyperparameter tuning results for the SVM model trained on the Bag of Words representation, with the best hyperparameters highlighted above."
+
+display_table_others(loaded_results)
+
+```
+
+
+```{python}
+#| label: svm bow confusion matrix
+#| fig-cap: "A confusion matrix for the SVM model trained on the Bag of Words representation."
+
+display_confusion_matrix(loaded_results)
+
+```
+
+
+```{python}
+#| label: svm bow test classification report
+#| tbl-cap: "A table of test classification results for the SVM model trained on the Bag of Words representation."
+
+display_test_classification_report(loaded_results)
+
+```
+
+
+### Naive Bayes
+
+```{python}
+
+# nb_results_bow = train_evaluate_nb(X_train, y_train, X_val, y_val, X_test, y_test)
+
+# # Save the model parameters
+# save_model_params(nb_results_bow, os.path.join(save_directory, 'nb_bow_results'))
+
+# # Load the saved model parameters
+# nb_results_bow = load_model_params(os.path.join(save_directory, 'nb_bow_results'))
+
+# results = visualize_and_verify_results(nb_results_bow, X_val, y_val, X_test, y_test, 'nb', class_labels=None)
+
+# Save and load the results for later
+
+save_path = save_directory2 + "/bow_nb_results"
+# save_results(results, save_path)
+loaded_results = load_results(save_path)
+#display_loaded_results(loaded_results)
+
+```
+
+```{python}
+#| label: nb bow accuracy plot
+#| fig-cap: "An accuracy plot for the NB model trained on the Bag of Words representation."
+
+display_accuracy_plot(loaded_results)
+
+```
+
+
+```{python}
+#| label: nb bow tuning table
+#| tbl-cap: "A table of hyperparameter tuning results for the NB model trained on the Bag of Words representation, with the best hyperparameters highlighted above."
+
+display_table_others(loaded_results)
+
+```
+
+
+```{python}
+#| label: nb bow confusion matrix
+#| fig-cap: "A confusion matrix for the NB model trained on the Bag of Words representation."
+
+display_confusion_matrix(loaded_results)
+
+```
+
+
+```{python}
+#| label: nb bow test classification report
+#| tbl-cap: "A table of test classification results for the NB model trained on the Bag of Words representation."
+
+display_test_classification_report(loaded_results)
+
+```
+
+
+## TF-IDF
+
+In a subsequent analysis utilising the term frequency-inverse document frequency (tf-idf) representation with various models, certain resemblances to the bag of words (bow) results were discerned. Firstly, with the feed-forward neural network, the accuracy plot bore a striking similarity to its bow counterpart. This model achieved a training accuracy of 0.99 and a validation accuracy of 0.588. The confusion matrix for test set predictions indicated that the majority of sentences were assigned their correct classes. The test set metrics recorded were: precision at 0.598, recall at 0.597, and the f1 score at 0.595.
+
+When the support vector machines (SVM) were employed in tandem with the tf-idf representation, the accuracy plot was found to mirror that of the bow version. After tuning, the training accuracy registered at 0.968, with validation and test accuracies being 0.542 and 0.574, respectively. The precision, recall, and f1 scores for this model were 0.58, 0.574, and 0.573 in that order.
+
+Lastly, the Naive Bayes model with the tf-idf approach displayed accuracy plots bearing a resemblance to the bow version. Post-optimisation, it yielded training, validation, and test accuracies of 0.915, 0.594, and 0.611 respectively. The precision and recall both stood at 0.611, whilst the test accuracy was slightly lower at 0.609.
+
+```{python}
+
+# import idf data
+x = tf_idf(sentence_data)
+y = sentence_data['president']
+
+# Prepare the data
+data = prepare_data(data_prep, x, y)
+X_train, y_train, X_val, y_val, X_test, y_test, inp_dim, count_classes = data['X_train'], data['y_train'], data['X_val'], data['y_val'], data['X_test'], data['y_test'], data['inp_dim'], data['count_classes']
+
+
+# Scaled data for SVM
+# scaler = cuml.preprocessing.StandardScaler()
+# X_train_scaled = scaler.fit_transform(X_train)
+# X_val_scaled = scaler.transform(X_val)
+# X_test_scaled = scaler.transform(X_test)
+
+# y_train_int = np.argmax(y_train, axis=1)
+# y_val_int = np.argmax(y_val, axis=1)
+# y_test_int = np.argmax(y_test, axis=1)
+
+```
+
+### Neural network
+
+```{python}
+
+# with tf.device('/device:GPU:0'):
+#   nn_tf_tune = hyperparameter_search_nn(seed,
+#                                         neural_net,
+#                                         X_train, y_train,
+#                                         X_val, y_val,
+#                                         X_test, y_test)
+
+# # Saving the model parameters
+# save_model_params(nn_tf_tune, os.path.join(save_directory, 'nn_tf_results'))
+
+# # Load the tuned output
+# nn_tf_tune = load_model_params(os.path.join(save_directory, 'nn_tf_results'))
+
+# results = visualize_and_verify_results(nn_tf_tune, X_val, y_val, X_test, y_test, 'nn', class_labels=None)
+
+# Save and load the results for later
+
+save_path = save_directory2 + "/tfidf_nn_results"
+# save_results(results, save_path)
+loaded_results = load_results(save_path)
+#display_loaded_results(loaded_results)
+
+```
+
+```{python}
+#| label: nn tf accuracy plot
+#| fig-cap: "An accuracy plot for the neural network model trained on the TF-IDF representation."
+
+display_accuracy_plot(loaded_results)
+
+```
+
+
+```{python}
+#| label: nn tf accuracies for the best fitted model
+#| tbl-cap: "A table of accuracies for the neural network model trained on the TF-IDF representation."
+
+display_table_nn(loaded_results)
+
+```
+
+
+```{python}
+#| label: nn tf table
+#| tbl-cap: "A table of results for the neural network model trained on the TF-IDF representation."
+
+display_table_others(loaded_results)
+
+```
+
+
+```{python}
+#| label: nn tf confusion matrix
+#| fig-cap: "A confusion matrix for the neural network model trained on the TF-IDF representation."
+
+display_confusion_matrix(loaded_results)
+
+```
+
+
+```{python}
+#| label: nn tf test classification report
+#| tbl-cap: "A table of test classification results for the neural network model trained on the TF-IDF representation."
+
+display_test_classification_report(loaded_results)
+
+```
+
+
+### Support Vector Machine
+
+```{python}
+
+# svm_results_tf = train_evaluate_svm(X_train, y_train, X_val, y_val, X_test, y_test, seed)
+
+# save_model_params(svm_results_tf, os.path.join(save_directory, 'svm_tf_results'))
+
+# svm_results_tf = load_model_params(os.path.join(save_directory, 'svm_tf_results'))
+
+# results = visualize_and_verify_results(svm_results_tf, X_val_scaled, y_val_int, X_test_scaled, y_test_int, 'svm', class_labels=None)
+
+# Save and load the results for later
+
+save_path = save_directory2 + "/tfidf_svm_results"
+# save_results(results, save_path)
+loaded_results = load_results(save_path)
+#display_loaded_results(loaded_results)
+
+```
+
+```{python}
+#| label: svm tf accuracy plot
+#| fig-cap: "An accuracy plot for the SVM model trained on the TF-IDF representation."
+
+display_accuracy_plot(loaded_results)
+
+```
+
+
+```{python}
+#| label: svm tf tuning table
+#| tbl-cap: "A table of hyperparameter tuning results for the SVM model trained on the TF-IDF representation, with the best hyperparameters highlighted above."
+
+display_table_others(loaded_results)
+
+```
+
+
+```{python}
+#| label: svm tf confusion matrix
+#| fig-cap: "A confusion matrix for the SVM model trained on the TF-IDF representation."
+
+display_confusion_matrix(loaded_results)
+
+```
+
+
+```{python}
+#| label: svm tf test classification report
+#| tbl-cap: "A table of test classification results for the SVM model trained on the TF-IDF representation."
+
+display_test_classification_report(loaded_results)
+
+```
+
+### Naive Bayes
+
+```{python}
+
+# nb_results_tf = train_evaluate_nb(X_train, y_train, X_val, y_val, X_test, y_test)
+
+# save_model_params(nb_results_tf, os.path.join(save_directory, 'nb_tf_results'))
+
+# nb_results_tf = load_model_params(os.path.join(save_directory, 'nb_tf_results'))
+
+# results = visualize_and_verify_results(nb_results_tf, X_val, y_val, X_test, y_test, 'nb', class_labels=None)
+
+# Save and load the results for later
+
+save_path = save_directory2 + "/tfidf_nb_results"
+# save_results(results, save_path)
+loaded_results = load_results(save_path)
+#display_loaded_results(loaded_results)
+
+```
+
+
+```{python}
+#| label: nb tf accuracy plot
+#| fig-cap: "An accuracy plot for the NB model trained on the TF-IDF representation."
+
+display_accuracy_plot(loaded_results)
+
+```
+
+
+```{python}
+#| label: nb tf tuning table
+#| tbl-cap: "A table of hyperparameter tuning results for the NB model trained on the TF-IDF representation, with the best hyperparameters highlighted above."
+
+display_table_others(loaded_results)
+
+```
+
+
+```{python}
+#| label: nb tf confusion matrix
+#| fig-cap: "A confusion matrix for the NB model trained on the TF-IDF representation."
+
+display_confusion_matrix(loaded_results)
+
+```
+
+
+```{python}
+#| label: nb tf test classification report
+#| tbl-cap: "A table of test classification results for the NB model trained on the TF-IDF representation."
+
+display_test_classification_report(loaded_results)
+
+```
+
+
+## Token Embeddings
+
+Upon utilising text embedding as a representation technique alongside various models, a marked degradation in performance was observed compared to other preprocessing methods. With the feed-forward neural network, the training accuracy was a mere 0.409, while the validation accuracy dropped further to 0.369. The confusion matrix for test set predictions was quite telling: for a majority of sentences, the correct classes were not discerned. Intriguingly, the class "Zuma" was predominantly predicted. The test set showcased a precision of 0.367, recall of 0.368, and a notably lower f1 score of 0.328.
+
+When paired with the support vector machines (SVM), post-tuning, the training accuracy stood at 0.406, with validation and test accuracies of 0.361 and 0.347, respectively. The precision was 0.342, the recall was 0.347, and the f1 score was slightly lower at 0.319.
+
+Incorporating the Naive Bayes model with text embedding, post-optimisation, the training, validation, and test accuracies were 0.359, 0.359, and 0.338 in that order. This model's precision and recall registered at 0.335 and 0.338 respectively, with the test accuracy being considerably reduced to 0.291. This underlines the challenge posed by text embeddings in this specific context, as the results were notably inferior to other data preparation methods.
+
+```{python}
+
+x, y, _ = tokenize_text(sentence_data['sentence'], sentence_data['president'])
+x_df = pd.DataFrame(x)
+
+data = prepare_data(data_prep, x_df, y)
+X_train, y_train, X_val, y_val, X_test, y_test, inp_dim, count_classes = data['X_train'], data['y_train'], data['X_val'], data['y_val'], data['X_test'], data['y_test'], data['inp_dim'], data['count_classes']
+
+# Scaled data for SVM
+# scaler = cuml.preprocessing.StandardScaler()
+# X_train_scaled = scaler.fit_transform(X_train)
+# X_val_scaled = scaler.transform(X_val)
+# X_test_scaled = scaler.transform(X_test)
+
+# y_train_int = np.argmax(y_train, axis=1)
+# y_val_int = np.argmax(y_val, axis=1)
+# y_test_int = np.argmax(y_test, axis=1)
+
+```
+
+### Neural network
+
+```{python}
+
+# with tf.device('/device:GPU:0'):
+#   nn_emb_tune = hyperparameter_search_nn(seed,
+#                                         neural_net,
+#                                         X_train, y_train,
+#                                         X_val, y_val,
+#                                         X_test, y_test)
+
+# # Saving the model parameters
+# save_model_params(nn_emb_tune, os.path.join(save_directory, 'nn_emb_results'))
+
+# # Load the saved model parameters
+# nn_emb_tune = load_model_params(os.path.join(save_directory, 'nn_emb_results'))
+
+# results = visualize_and_verify_results(nn_emb_tune, X_val, y_val, X_test, y_test, 'nn', class_labels=None)
+
+# Save and load the results for later
+
+save_path = save_directory2 + "/emb_nn_results"
+# save_results(results, save_path)
+loaded_results = load_results(save_path)
+#display_loaded_results(loaded_results)
+
+```
+
+```{python}
+#| label: nn emb accuracy plot
+#| fig-cap: "An accuracy plot for the neural network model trained on the text embeddings representation."
+
+display_accuracy_plot(loaded_results)
+
+```
+
+
+```{python}
+#| label: nn emb accuracies for the best fitted model
+#| tbl-cap: "A table of accuracies for the neural network model trained on the text embeddings representation."
+
+display_table_nn(loaded_results)
+
+```
+
+
+```{python}
+#| label: nn emb table
+#| tbl-cap: "A table of results for the neural network model trained on the text embeddings representation."
+
+display_table_others(loaded_results)
+
+```
+
+
+```{python}
+#| label: nn emb confusion matrix
+#| fig-cap: "A confusion matrix for the neural network model trained on the text embeddings representation."
+
+display_confusion_matrix(loaded_results)
+
+```
+
+
+```{python}
+#| label: nn emb test classification report
+#| tbl-cap: "A table of test classification results for the neural network model trained on the text embeddings representation."
+
+display_test_classification_report(loaded_results)
+
+```
+
+### Support Vector Machine
+
+```{python}
+
+# svm_results_emb = train_evaluate_svm(X_train, y_train, X_val, y_val, X_test, y_test, seed)
+
+# save_model_params(svm_results_emb, os.path.join(save_directory, 'svm_emb_results'))
+
+# svm_results_emb = load_model_params(os.path.join(save_directory, 'svm_emb_results'))
+
+# results = visualize_and_verify_results(svm_results_emb, X_val_scaled, y_val_int, X_test_scaled, y_test_int, 'svm', class_labels=None)
+
+# Save and load the results for later
+
+save_path = save_directory2 + "/emb_svm_results"
+# save_results(results, save_path)
+loaded_results = load_results(save_path)
+#display_loaded_results(loaded_results)
+
+```
+
+```{python}
+#| label: svm emb accuracy plot
+#| fig-cap: "An accuracy plot for the SVM model trained on the text embedding representation."
+
+display_accuracy_plot(loaded_results)
+
+```
+
+
+```{python}
+#| label: svm emb tuning table
+#| tbl-cap: "A table of hyperparameter tuning results for the SVM model trained on the text embedding representation, with the best hyperparameters highlighted below."
+
+display_table_others(loaded_results)
+
+```
+
+
+```{python}
+#| label: svm emb confusion matrix
+#| fig-cap: "A confusion matrix for the SVM model trained on the text embedding representation."
+
+display_confusion_matrix(loaded_results)
+
+```
+
+
+```{python}
+#| label: svm emb test classification report
+#| tbl-cap: "A table of test classification results for the SVM model trained on the text embedding representation."
+
+display_test_classification_report(loaded_results)
+
+```
+
+### Naive Bayes
+
+```{python}
+
+# nb_results_emb = train_evaluate_nb(X_train, y_train, X_val, y_val, X_test, y_test)
+
+# save_model_params(nb_results_emb, os.path.join(save_directory, 'nb_emb_results'))
+
+# nb_results_emb = load_model_params(os.path.join(save_directory, 'nb_emb_results'))
+
+# results = visualize_and_verify_results(nb_results_emb, X_val, y_val, X_test, y_test, 'nb', class_labels=None)
+
+# Save and load the results for later
+
+save_path = save_directory2 + "/emb_nb_results"
+# save_results(results, save_path)
+loaded_results = load_results(save_path)
+#display_loaded_results(loaded_results)
+
+```
+
+```{python}
+#| label: nb emb accuracy plot
+#| fig-cap: "An accuracy plot for the NB model trained on the text embedding representation."
+
+display_accuracy_plot(loaded_results)
+
+```
+
+
+```{python}
+#| label: nb emb tuning table
+#| tbl-cap: "A table of hyperparameter tuning results for the NB model trained on the text embedding representation, with the best hyperparameters highlighted above."
+
+display_table_others(loaded_results)
+
+```
+
+
+```{python}
+#| label: nb emb confusion matrix
+#| fig-cap: "A confusion matrix for the NB model trained on the text embedding representation."
+
+display_confusion_matrix(loaded_results)
+
+```
+
+
+```{python}
+#| label: nb emb test classification report
+#| tbl-cap: "A table of test classification results for the NB model trained on the text embedding representation."
+
+display_test_classification_report(loaded_results)
+
+```
+
+## BERT Embeddings with pre-trained classifier
+
+The code for this section was adapted from the following source: [Google Tensorflow BERT tutorial](https://www.tensorflow.org/text/tutorials/classify_text_with_bert)
+
+Utilising the BERT embedding in tandem with a pre-trained model, a strategy known as transfer learning, distinctive patterns in performance were observed. Throughout the training epochs, the training accuracy showcased a consistent uptick. However, the validation accuracy plateaued rather swiftly, exhibiting minimal fluctuations thereafter. At the culmination of the training, the accuracy metrics stood as follows: training accuracy at 0.759, validation accuracy at 0.684, and a slightly higher test accuracy of 0.712. Further delving into the test set metrics, the precision was 0.71, recall was 0.707, and the f1 score was close behind at 0.708. An examination of the confusion matrix for the test set underscored these findings. The model predominantly made accurate predictions for the respective presidents, mirroring the positive metrics mentioned earlier. This highlights the efficacy of the BERT embeddings and transfer learning in this particular context, as the results were substantially more favourable than some other methods previously explored.
+
+```{python}
+
+y = sentence_data['president'].values
+
+# Split dataset into train and a temporary set (70% - 30% split)
+train_df, temp_df = train_test_split(sentence_data, test_size=0.3, stratify=y, random_state=seed)
+
+# Split the temporary set into validation and test sets (50% - 50% split of the 30%)
+val_df, test_df = train_test_split(temp_df, test_size=0.5, stratify=temp_df['president'], random_state=seed)
+
+# Assuming you have a list of unique presidents
+unique_presidents = sentence_data['president'].unique()
+
+# Create a mapping of president names to integer labels
+label_map = {name: idx for idx, name in enumerate(unique_presidents)}
+
+# Integer-encode the labels in the dataframes
+train_df['president'] = train_df['president'].map(label_map)
+val_df['president'] = val_df['president'].map(label_map)
+test_df['president'] = test_df['president'].map(label_map)
+
+# Convert pandas DataFrames to TensorFlow datasets
+def df_to_tfdata(df, shuffle=True, batch_size=32):
+    ds = tf.data.Dataset.from_tensor_slices((df["sentence"].values, df["president"].values))
+    if shuffle:
+        ds = ds.shuffle(buffer_size=len(df))
+    ds = ds.batch(batch_size)
+    ds = ds.cache().prefetch(buffer_size=tf.data.AUTOTUNE)
+    return ds
+
+train_ds = df_to_tfdata(train_df)
+val_ds = df_to_tfdata(val_df, shuffle=False)
+test_ds = df_to_tfdata(test_df, shuffle=False)
+
+```
+
+
+```{python}
+
+# Load the saved model
+# import tensorflow_text as text
+# saved_model_path = "saved_files/jared_sentences_bert"
+# bert_model = tf.saved_model.load(saved_model_path)
+
+# # Define a function to evaluate the model
+# def evaluate_model(model, dataset):
+#     predictions = []
+#     true_labels = []
+
+#     for inputs, labels in dataset:
+#         logits = model(inputs, training=False)  # Forward pass
+#         predicted_labels = np.argmax(logits, axis=1)
+#         true_labels.extend(labels.numpy())
+#         predictions.extend(predicted_labels)
+
+#     return true_labels, predictions
+
+
+
+```
+
+```{python}
+
+def save_output(train_true, train_pred, val_true, val_pred, test_true, test_pred, filename):
+    """
+    Save the evaluation outputs to a file.
+    
+    Parameters:
+    - train_true, train_pred, val_true, val_pred, test_true, test_pred: Outputs to save.
+    - filename: Path to the file where the outputs will be saved.
+    """
+    with open(filename, 'wb') as f:
+        pickle.dump((train_true, train_pred, val_true, val_pred, test_true, test_pred), f)
+
+def load_output(filename):
+    """
+    Load the evaluation outputs from a file.
+    
+    Parameters:
+    - filename: Path to the file from where the outputs will be loaded.
+    
+    Returns:
+    - train_true, train_pred, val_true, val_pred, test_true, test_pred: Loaded outputs.
+    """
+    with open(filename, 'rb') as f:
+        train_true, train_pred, val_true, val_pred, test_true, test_pred = pickle.load(f)
+    return train_true, train_pred, val_true, val_pred, test_true, test_pred
+
+
+```
+
+```{python}
+
+# # Evaluate the model on the training, validation, and test datasets
+# train_true, train_pred = evaluate_model(bert_model, train_ds)
+# val_true, val_pred = evaluate_model(bert_model, val_ds)
+# test_true, test_pred = evaluate_model(bert_model, test_ds)
+
+# # Save the outputs
+# save_output(train_true, train_pred, val_true, val_pred, test_true, test_pred, 'bert_evaluation.pkl')
+
+train_true, train_pred, val_true, val_pred, test_true, test_pred = load_output('bert_evaluation.pkl')
+
+
+```
+
+
+```{python}
+# Display the saved image
+display(Image(filename='saved_files/train_val_curves_bert.png'))
+
+```
+
+```{python}
+
+def extract_metrics(y_true, y_pred):
+    accuracy = np.mean(np.array(y_true) == np.array(y_pred))
+    
+    precision = precision_score(y_true, y_pred, average='macro', zero_division=1)
+    recall = recall_score(y_true, y_pred, average='macro', zero_division=1)
+    f1 = f1_score(y_true, y_pred, average='macro', zero_division=1)
+    
+    metrics = {
+        'accuracy': accuracy,
+        'precision': precision,
+        'recall': recall,
+        'f1_score': f1
+    }
+    return metrics
+
+train_metrics = extract_metrics(train_true, train_pred)
+val_metrics = extract_metrics(val_true, val_pred)
+test_metrics = extract_metrics(test_true, test_pred)
+
+# Create a DataFrame for a neat table
+df = pd.DataFrame([train_metrics, val_metrics, test_metrics], 
+                  index=['Training', 'Validation', 'Test'])
+
+# Round the values to 3 decimal places for better presentation
+df = df.round(3)
+
+# Display the table
+display(df)
+
+
+```
+
+
+```{python}
+
+# Function to plot confusion matrix
+def plot_confusion_matrix(true, pred, title):
+    matrix = confusion_matrix(true, pred)
+    plt.figure(figsize=(10, 7))
+    sns.heatmap(matrix, annot=True, fmt="d", cmap="Blues",
+                xticklabels=set(true), yticklabels=set(true))
+    plt.title(title)
+    plt.ylabel('True Label')
+    plt.xlabel('Predicted Label')
+    plt.show()
+
+# Plot confusion matrices
+plot_confusion_matrix(test_true, test_pred, title="Test Data Confusion Matrix")
+
+```

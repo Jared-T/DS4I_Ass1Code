@@ -1,0 +1,32 @@
+project:
+  type: website
+  output-dir: docs
+
+website:
+  title: "DS4I Assignment 1"
+  navbar:
+    left:
+      - href: index.qmd
+        text: Home
+      - intro_lit_review.qmd
+      - eda.qmd
+      - methods.qmd
+      - results.qmd
+      - discussion_conclusion.qmd
+      - code_appendix.qmd
+
+format:
+  html:
+    embed-resources: true
+    theme: cosmo
+    css: styles.css
+    toc: true
+
+jupyter:
+  kernel: scientificproject
+
+execute:
+  cache: true
+  echo: false
+
+bibliography: references.bib
